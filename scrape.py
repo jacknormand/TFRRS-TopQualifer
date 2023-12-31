@@ -1,10 +1,9 @@
 import bs4
 import psycopg2
-import requests
-import time
-import sys
+import time, sys, threading, requests
 from configparser import ConfigParser
 from datetime import datetime
+from itertools import cycle
 
 # gets performances from a results links for given year/season
 # store in postgre
@@ -70,7 +69,7 @@ def progressbar(current_value,total_value):
     progress = (current_value/total_value) * 10
     boxes = ("■" * int(abs(progress)))
     spaces = " " * (10-len(boxes))
-    loadbar = f" Scraping Progress:[{boxes+spaces}]{int(abs(progress)*10)}%"
+    loadbar = f"[{boxes+spaces}]{int(abs(progress)*10)}%"
     print(loadbar, end ='\r')
 
 # convert
@@ -85,7 +84,7 @@ def convertTime(time_str):
 
         # Parse the time string to a timedelta object
         time_delta = datetime.strptime(time_str, time_format) - datetime(1900, 1, 1)
-
+        
         # Convert the timedelta to seconds with 2 decimal places
         seconds = time_delta.total_seconds()
 
@@ -113,7 +112,7 @@ def scrapeAllYears():
     conn = None
     try:
         params = config()
-        print('Connecting to the PostgreSQL database...')
+        # print('Connecting to the PostgreSQL database...', end ='\r')
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
 
@@ -143,11 +142,12 @@ def scrapeAllYears():
         endYear = 0
         year = datetime.today().year
         # if user inputs range
-        if sys.argv[1]:
+        if sys.argv[1] and sys.argv[2]:
             startYear = int(sys.argv[1])
-
-        if sys.argv[2]:
             endYear = int(sys.argv[2])
+        else:
+            print("invalid params")
+            return
         # variables
         linkYear = startYear
         linkSeason = "indoor"
@@ -161,16 +161,16 @@ def scrapeAllYears():
         meterEvents = {'Javelin', 'Hammer', 'HighJump', 'PoleVault', 'LongJump', 'TripleJump', 'ShotPut', 'Discus', 'WeightThrow'}
         multiEvents = ('Decathlon', 'Pentathlon', 'Heptathlon')
         
-        print(f"Beginning scrape from {startYear} to {endYear}")
+        # print(f"Beginning scrape from {startYear} to {endYear}", end ='\r')
         
         # loop through the years/seasons
         while curLink and linkYear <= endYear:
-            progressbar(linkYear-startYear, year-endYear)
+            progressbar(linkYear-startYear, year-startYear)
             #scrape indoor
             # print(f"{linkYear}, {linkSeason}, {curLink}")
             # gets rows
             rows = scrapePerformances(curLink)
-            
+
             # loop through the rows in each season
             for row in rows:
                 try:
@@ -232,30 +232,38 @@ def scrapeAllYears():
                 linkSeason = "indoor"
             # get link for outdoor
             curLink = getResultsLink(str(linkYear), linkSeason)
-        progressbar(1, 1)
 
+        progressbar(1, 1)
         print("\nSuccessfully completed scrape")
 
         cur.close()
         conn.commit()
     except (Exception, psycopg2.DatabaseError) as error:
         print('\n')
-        print(athlete)
-        print(event)
+        # print(athlete)
+        # print(event)
         print(error)
     finally:
         if conn is not None:
             conn.close()
             print('Database connection closed.')
 
+def animate():
+    for c in cycle(["⢿", "⣻", "⣽", "⣾", "⣷", "⣯", "⣟", "⡿"]):
+        if done:
+            break
+        sys.stdout.write('\rScraping ' + c + " ")
+        sys.stdout.flush()
+        time.sleep(0.1)
 if __name__ == "__main__":
     #currently works 2012-current
     #doesnt work earlier (yet) because:
-    #in the lists before 2012 there is weird imgs and stuff
-    #that screws up the indexing of the scraper
-    #can be fixed and might eventually get fixed
-    #link scraper (getResultsLink) doesnt get links for
-    #before 2010 though. havent even looked into it
+    #in the lists before 2012 there is weird imgs and things get wonky
 
     #happy scraping :)
+    done = False
+    t = threading.Thread(target=animate)
+    t.start()
+
     scrapeAllYears()
+    done = True
