@@ -69,7 +69,7 @@ def progressbar(current_value,total_value):
     progress = (current_value/total_value) * 10
     boxes = ("■" * int(abs(progress)))
     spaces = " " * (10-len(boxes))
-    loadbar = f"[{boxes+spaces}]{int(abs(progress)*10)}%"
+    loadbar = f"  [{boxes+spaces}]{int(abs(progress)*10)}%"
     print(loadbar, end ='\r')
 
 # convert
@@ -138,7 +138,7 @@ def scrapeAllYears():
         # ends at latest year (2024)
         #START
         # startYear 
-        startYear = 2013
+        startYear = 2012
         endYear = 0
         year = datetime.today().year
         # if user inputs range
@@ -261,6 +261,7 @@ if __name__ == "__main__":
     #in the lists before 2012 there is weird imgs and things get wonky
 
     #happy scraping :)
+
     done = False
     t = threading.Thread(target=animate)
     t.start()
