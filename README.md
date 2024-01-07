@@ -1,5 +1,5 @@
 # Overview
-A program that collects data from TFRRS and stores in a Postgres DB. Collects the top 100 marks for every track event for a given range of indoor/outdoor seasons (startyear-endyear).
+A program that collects data from TFRRS.com (online track & field database) and stores in a Postgres DB. Collects the top 100 marks for every track event for a given range of indoor/outdoor seasons (startyear-endyear).
 
 
 # Usage
