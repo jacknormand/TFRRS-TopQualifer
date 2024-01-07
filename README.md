@@ -4,7 +4,7 @@ A program that collects data from TFRRS.com (online track & field database) and 
 
 # Usage
 'python3 scrape.py 2012 2024' <br>
-Supports scraping just one year, just make startyear = endyear <br>
+Supports scraping just one year also, just make startyear = endyear <br>
 **ONLY WORKS FROM 2012-ON**<br>
 
 # Disclaimer
