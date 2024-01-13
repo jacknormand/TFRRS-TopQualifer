@@ -110,6 +110,8 @@ def scrapeAllYears():
         print("Example usage: Python3 scrape.py 2023 2024")
     # connect
     conn = None
+    # counter for rows skipped
+    errcount = 0
     try:
         params = config()
         # print('Connecting to the PostgreSQL database...', end ='\r')
@@ -123,11 +125,10 @@ def scrapeAllYears():
             entryid SERIAL PRIMARY KEY,
             event varchar(255),
             rank int NOT NULL,
+            gender varchar(255),
             athlete varchar(255),
             team varchar(255),
-            time float,
-            mark float,
-            score int,
+            result float,
             meet varchar(255),
             season varchar(255),
             meetdate date)
@@ -161,8 +162,9 @@ def scrapeAllYears():
         meterEvents = {'Javelin', 'Hammer', 'HighJump', 'PoleVault', 'LongJump', 'TripleJump', 'ShotPut', 'Discus', 'WeightThrow'}
         multiEvents = ('Decathlon', 'Pentathlon', 'Heptathlon')
         
+
+
         # print(f"Beginning scrape from {startYear} to {endYear}", end ='\r')
-        
         # loop through the years/seasons
         while curLink and linkYear <= endYear:
             progressbar(linkYear-startYear, year-startYear)
@@ -170,19 +172,28 @@ def scrapeAllYears():
             # print(f"{linkYear}, {linkSeason}, {curLink}")
             # gets rows
             rows = scrapePerformances(curLink)
+            # section counter adds for each new section
 
             # loop through the rows in each season
             for row in rows:
                 try:
+                    # not proud of this here, but i found out while making the backend queries that i dont even 
+                    # have a gender field. this is how i decided to fix that. works 
+                    # surprisingly doesnt slow program to a halt. 
+                    if (row.parent.parent.parent.parent.get("class")[1][-1]) == 'f':
+                        gender = 'female'
+                    else:
+                        gender = 'male'
+
                     data = row.find_all('a')
                     rank = data[0].text
+
                     meetdate = row.find('td', class_='tablesaw-priority-2').text
                     meetdate = datetime.strptime(meetdate, '%b %d, %Y').strftime('%Y-%m-%d')
                     # this div doesnt exist in relays, so i use it to check
                     checkRelay = row.find('td', class_='tablesaw-priority-1')
                     # gather data depending on relay or nah
                     # IF A RELAY!
-                    # fix high jump 
                     if not checkRelay:
                         team = data[1].text
                         result = data[2].text
@@ -200,29 +211,25 @@ def scrapeAllYears():
                         event = data[3].get("href").split("/")[-1].replace("-","")
                         # if rank == "1":
                             # print(f"rank:{rank} athlete:{athlete} team:{team} time:{time} meet:{meet} date:{meetdate} ")
-
                     #RESULT INSERT depending on a field event, multi, or run
                     # convert to seconds
                     if event in timeEvents:
-                        time = convertTime(result)
-                        cur.execute("""INSERT INTO TopPerformances (event, rank, athlete, team, time, meet, season, meetdate)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""", 
-                                (event, int(rank), athlete, team, time, meet, linkSeason, meetdate))
+                        result = convertTime(result)
                     elif event in meterEvents:
-                        mark = convertMark(result)
+                        result = convertMark(result)
                         meet = data[5].text
-                        cur.execute("""INSERT INTO TopPerformances (event, rank, athlete, team, mark, meet, season, meetdate)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""", 
-                                (event, int(rank), athlete, team, mark, meet, linkSeason, meetdate))
                     elif event in multiEvents:
-                        score = convertMark(result)
-                        cur.execute("""INSERT INTO TopPerformances (event, rank, athlete, team, score, meet, season, meetdate)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""", 
-                                (event, int(rank), athlete, team, score, meet, linkSeason, meetdate))
+                        result = convertMark(result)
                     else:
                         print("ERROR: BAD EVENT DETECTED")
                         return
-                except:
+                    cur.execute("""insert into topperformances (event, rank, gender, athlete, team, result, meet, season, meetdate)
+                            values (%s, %s, %s, %s, %s, %s, %s, %s, %s)""", 
+                            (event, int(rank), gender, athlete, team, float(result), meet, linkSeason, meetdate))
+
+                except (Exception, psycopg2.DatabaseError) as error:
+                    errcount+=1
+                    # print(error)
                     continue
             # set for next one
             if linkSeason == "indoor":
@@ -236,6 +243,20 @@ def scrapeAllYears():
         progressbar(1, 1)
         print("\nSuccessfully completed scrape")
 
+        # run clean up queries. fixes some weird data
+        # combines some teams and fixes some stuff so backend queries can run
+        cur.execute("""UPDATE topperformances
+                    SET team = LEFT(team, LENGTH(team) - 4)
+                    WHERE team LIKE '%(_)'""")
+
+        cur.execute("""UPDATE topperformances
+                    SET team = 'Miami (Ohio)'
+                    WHERE team = 'Miami (OH)'""")
+
+        cur.execute("""UPDATE topperformances
+                    SET team = 'Miami (Fla.)'
+                    WHERE team = 'Miami'""")
+
         cur.close()
         conn.commit()
     except (Exception, psycopg2.DatabaseError) as error:
@@ -243,10 +264,12 @@ def scrapeAllYears():
         # print(athlete)
         # print(event)
         print(error)
+
     finally:
         if conn is not None:
             conn.close()
             print('Database connection closed.')
+            return errcount
 
 def animate():
     for c in cycle(["⢿", "⣻", "⣽", "⣾", "⣷", "⣯", "⣟", "⡿"]):
@@ -259,6 +282,7 @@ if __name__ == "__main__":
     #currently works 2012-current
     #doesnt work earlier (yet) because:
     #in the lists before 2012 there is weird imgs and things get wonky
+    # can be adapted for other divisions easily, will do it in the future
 
     #happy scraping :)
 
@@ -266,5 +290,14 @@ if __name__ == "__main__":
     t = threading.Thread(target=animate)
     t.start()
 
-    scrapeAllYears()
+    count = scrapeAllYears()
     done = True
+
+    print(count)
+
+
+
+
+
+
+
