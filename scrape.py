@@ -229,6 +229,7 @@ def scrapeAllYears():
 
                 except (Exception, psycopg2.DatabaseError) as error:
                     errcount+=1
+
                     # print(error)
                     continue
             # set for next one
@@ -293,8 +294,7 @@ if __name__ == "__main__":
     count = scrapeAllYears()
     done = True
 
-    print(count)
-
+    print("Skipped entries: " + count)
 
 
 
