@@ -15,4 +15,4 @@ Supports scraping just one year also, just make startyear = endyear <br>
 
 
 # Disclaimer
-This project is for educational purposes only. Please do not use this irresponsibly as it violates TFRRS TOS. I take no responsbility for what you do with this, in fact I discourage you from using it.
+This project is for educational purposes only. Please do not use irresponsibly.
