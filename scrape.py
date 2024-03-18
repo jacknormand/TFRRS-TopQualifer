@@ -5,9 +5,9 @@ from configparser import ConfigParser
 from datetime import datetime
 from itertools import cycle
 
-# gets performances from a results links for given year/season
-# store in postgre
-# returns true if success, false otherwise
+# takes in a link, gets the list rows, returns that list
+# otherwise none
+# super simple just finds the list of rows
 def scrapePerformances(resultsLink):
     r = requests.get(resultsLink)
     soup = bs4.BeautifulSoup(r.content, "html5lib")
@@ -32,6 +32,7 @@ def getResultsLink(year,seasonStr):
     
     # just gets first div in row, first list in div, and link from first a tag
     # should be the same for every year, returns link when found
+    # this looks ugly but i guess its how you do it in bs4
     row_div = soup.find('div', class_= 'row')
     if row_div:
         first_div_inside_row = row_div.find('div')
@@ -46,6 +47,7 @@ def getResultsLink(year,seasonStr):
 
 # config parse function
 # gets data from database.ini file
+# found out about config parser, decided to try it out
 def config(filename='database.ini', section='postgresql'):
     # create a parser
     parser = ConfigParser()
@@ -62,7 +64,7 @@ def config(filename='database.ini', section='postgresql'):
         raise Exception('Section {0} not found in the {1} file'.format(section, filename))
     return db
 
-# progress!
+# progress bar function. scraping can take a while so i thought this would look cool :)
 def progressbar(current_value,total_value):
     if total_value == 0:
         total_value = 1
@@ -72,7 +74,8 @@ def progressbar(current_value,total_value):
     loadbar = f"  [{boxes+spaces}]{int(abs(progress)*10)}%"
     print(loadbar, end ='\r')
 
-# convert
+# convert time format for the rows to match SQL time type
+# this is so all events use same format for their result times
 def convertTime(time_str):
     try:
         if ':' in time_str:
@@ -97,12 +100,14 @@ def convertTime(time_str):
         return None
     
 # remove m at the end, or just keep the same
+# literally just checks if last char is as m and slices it off. thats it
 def convertMark(mark):
     # if a meter distance
     if mark[-1] == 'm':
         return mark[:-1]
     return mark
 
+# MAIN FUNCTION:
 # connects to db, scrapes all, stores them in postgreSQL
 def scrapeAllYears():
     if not sys.argv[1] or not sys.argv[2]:
@@ -112,6 +117,7 @@ def scrapeAllYears():
     conn = None
     # counter for rows skipped
     errcount = 0
+    # wrapped all this is try because it can run into weird one off rows that mess it up
     try:
         params = config()
         # print('Connecting to the PostgreSQL database...', end ='\r')
@@ -119,7 +125,7 @@ def scrapeAllYears():
         cur = conn.cursor()
 
         # temp year and season vars
-        # begin operations
+        # begin operations in DB: make table
         cur.execute("""DROP TABLE IF EXISTS TopPerformances""")
         cur.execute("""CREATE TABLE IF NOT EXISTS TopPerformances (
             entryid SERIAL PRIMARY KEY,
@@ -138,32 +144,34 @@ def scrapeAllYears():
         # starts at 2010
         # ends at latest year (2024)
         #START
-        # startYear 
+        # startYear default changes if valid
         startYear = 2012
         endYear = 0
         year = datetime.today().year
-        # if user inputs range
+        # if user inputs range, change defaults
         if sys.argv[1] and sys.argv[2]:
             startYear = int(sys.argv[1])
             endYear = int(sys.argv[2])
         else:
             print("invalid params")
             return
-        # variables
+        # variables: linkyear is just the year we use in the link that changes. (link is link to website)
         linkYear = startYear
+        # starts at indoor season, switches to outdoor for each year
         linkSeason = "indoor"
+        # gets first link
         curLink = getResultsLink(str(linkYear), linkSeason)
         # END YEAR
         
         # event hashing, so we can check how to store event marks in DB
+        # looks quite messy, just checks so we know how to store data
         timeEvents = { '400Hurdles', '110Hurdles', '100Hurdles', '10000Meters', '1500Meters',  '100Meters', '60Meters', '200Meters', 
                       '400Meters', '800Meters', '4x400Relay', '4x100Relay', '3000Steeplechase', 'Mile', '3000Meters', '5000Meters',
                       '60Hurdles', '4x400Relay', 'DistanceMedleyRelay'}
         meterEvents = {'Javelin', 'Hammer', 'HighJump', 'PoleVault', 'LongJump', 'TripleJump', 'ShotPut', 'Discus', 'WeightThrow'}
         multiEvents = ('Decathlon', 'Pentathlon', 'Heptathlon')
-        
 
-
+        #------------------------- MAIN OUTER LOOP!!!!!!!!!!!!------------------------------
         # print(f"Beginning scrape from {startYear} to {endYear}", end ='\r')
         # loop through the years/seasons
         while curLink and linkYear <= endYear:
@@ -175,19 +183,22 @@ def scrapeAllYears():
             # section counter adds for each new section
 
             # loop through the rows in each season
+            # INNER LOOP!!!!!!!!!!!!!!!
+            # loop through rows 
             for row in rows:
                 try:
                     # not proud of this here, but i found out while making the backend queries that i dont even 
                     # have a gender field. this is how i decided to fix that. works 
                     # surprisingly doesnt slow program to a halt. 
+                    # i think you can index parents in bs4 (parent[3] maybe ill make it look nicer later)
                     if (row.parent.parent.parent.parent.get("class")[1][-1]) == 'f':
                         gender = 'female'
                     else:
                         gender = 'male'
 
+                    # get data row object, extra actual data from the row
                     data = row.find_all('a')
                     rank = data[0].text
-
                     meetdate = row.find('td', class_='tablesaw-priority-2').text
                     meetdate = datetime.strptime(meetdate, '%b %d, %Y').strftime('%Y-%m-%d')
                     # this div doesnt exist in relays, so i use it to check
@@ -213,6 +224,7 @@ def scrapeAllYears():
                             # print(f"rank:{rank} athlete:{athlete} team:{team} time:{time} meet:{meet} date:{meetdate} ")
                     #RESULT INSERT depending on a field event, multi, or run
                     # convert to seconds
+                    # uses hashed event sets from above
                     if event in timeEvents:
                         result = convertTime(result)
                     elif event in meterEvents:
@@ -223,22 +235,25 @@ def scrapeAllYears():
                     else:
                         print("ERROR: BAD EVENT DETECTED")
                         return
+                    # finally insert
                     cur.execute("""insert into topperformances (event, rank, gender, athlete, team, result, meet, season, meetdate)
                             values (%s, %s, %s, %s, %s, %s, %s, %s, %s)""", 
                             (event, int(rank), gender, athlete, team, float(result), meet, linkSeason, meetdate))
 
+                # IF A BAD ROW: dont crash
+                # example of bad row: relay with only 3 people running (idk how that even happens. but it happened once in like 2012 lol)
                 except (Exception, psycopg2.DatabaseError) as error:
                     errcount+=1
 
                     # print(error)
                     continue
-            # set for next one
+            # set for next season
             if linkSeason == "indoor":
                 linkSeason = "outdoor"
             else:
                 linkYear+=1
                 linkSeason = "indoor"
-            # get link for outdoor
+            # get link for outdoor season!
             curLink = getResultsLink(str(linkYear), linkSeason)
 
         progressbar(1, 1)
@@ -246,6 +261,9 @@ def scrapeAllYears():
 
         # run clean up queries. fixes some weird data
         # combines some teams and fixes some stuff so backend queries can run
+        # i dont want 2 teams named miami ohio or two named miami florida
+        # this is the only inconsistency i could find. 
+        # also first query just fixes (A, B, C) teams flooding entries, makes it so they arent different schools in the database
         cur.execute("""UPDATE topperformances
                     SET team = LEFT(team, LENGTH(team) - 4)
                     WHERE team LIKE '%(_)'""")
@@ -273,6 +291,7 @@ def scrapeAllYears():
             return errcount
 
 def animate():
+    # cool little animation looks like npm lol
     for c in cycle(["⢿", "⣻", "⣽", "⣾", "⣷", "⣯", "⣟", "⡿"]):
         if done:
             break
